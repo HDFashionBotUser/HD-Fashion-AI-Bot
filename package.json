@@ -1,0 +1,12 @@
+{
+  "name": "hd-fashion-ai-bot",
+  "version": "1.0.0",
+  "description": "Vercel server for HD Fashion's AI chatbot with RAG and Facebook Webhook.",
+  "main": "api/index.js",
+  "scripts": {
+    "start": "node api/index.js"
+  },
+  "dependencies": {
+    "openai": "^4.24.1"
+  }
+}
