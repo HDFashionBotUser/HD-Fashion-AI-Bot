@@ -9,7 +9,7 @@ async function sendSenderAction(psid, action) {
     await axios.post(
       `https://graph.facebook.com/v12.0/me/messages?access_token=${process.env.PAGE_ACCESS_TOKEN}`,
       {
-        recipient: { id: psid },
+        recipient: { id: sender_psid },
         sender_action: action
       }
     );
