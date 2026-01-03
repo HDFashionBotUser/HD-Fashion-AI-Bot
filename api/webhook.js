@@ -4,7 +4,7 @@ const axios = require('axios');
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // মেটা এপিআই-তে সিন বা টাইপিং সিগন্যাল পাঠানোর ফাংশন
-async function sendSenderAction(psid, action) {
+async function sendSenderAction(sender_psid, action) {
   try {
     await axios.post(
       `https://graph.facebook.com/v12.0/me/messages?access_token=${process.env.PAGE_ACCESS_TOKEN}`,
