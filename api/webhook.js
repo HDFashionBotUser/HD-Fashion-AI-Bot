@@ -3,13 +3,13 @@ const axios = require('axios');
 // নির্দিষ্ট সময় অপেক্ষা করার ফাংশন
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// মেটা থেকে কাস্টমারের নাম ও লিঙ্গ সংগ্রহের ফাংশন
+// কাস্টমারের প্রোফাইল (নাম ও লিঙ্গ) ডাটা পাওয়ার ফাংশন
 async function getUserProfile(psid) {
   try {
     const response = await axios.get(`https://graph.facebook.com/${psid}?fields=first_name,gender&access_token=${process.env.PAGE_ACCESS_TOKEN}`);
     return response.data;
   } catch (error) {
-    console.error('User Profile Error:', error.message);
+    console.error('Profile Error:', error.message);
     return { first_name: 'সম্মানিত কাস্টমার', gender: 'unknown' };
   }
 }
@@ -30,7 +30,6 @@ async function sendSenderAction(sender_psid, action) {
 }
 
 module.exports = async (req, res) => {
-  // Webhook ভেরিফিকেশন (GET Method)
   if (req.method === 'GET') {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -39,7 +38,6 @@ module.exports = async (req, res) => {
     return res.status(403).end();
   }
 
-  // মেসেজ প্রসেসিং (POST Method)
   if (req.method === 'POST') {
     const body = req.body;
     if (body.object === 'page') {
@@ -51,21 +49,21 @@ module.exports = async (req, res) => {
           if (webhook_event.message && webhook_event.message.text) {
             const userMessage = webhook_event.message.text;
 
-            // ১. প্রোফাইল থেকে তথ্য নেওয়া
+            // প্রোফাইল তথ্য সংগ্রহ
             const profile = await getUserProfile(sender_psid);
-            const firstName = profile.first_name;
-            const title = profile.gender === 'male' ? 'স্যার' : (profile.gender === 'female' ? 'ম্যাম' : '');
 
-            // ২. ৩ সেকেন্ড পর সিন হওয়া
+            // ধাপ ১: ৩ সেকেন্ড পর সিন (Seen) করা
             await sleep(3000); 
             await sendSenderAction(sender_psid, 'mark_seen');
 
-            // ৩. টাইপিং সিগন্যাল শুরু (৫০০ মিলি-সেকেন্ড গ্যাপ দিয়ে নিশ্চিত করা)
-            await sleep(500); 
+            // ধাপ ২: টাইপিং সিগন্যাল চালু করা (ডট ডট এনিমেশন)
+            await sleep(500); // সিন এবং টাইপিং এর মাঝে সামান্য গ্যাপ
             await sendSenderAction(sender_psid, 'typing_on');
 
-            // ৪. ৪ সেকেন্ড টাইপিং চলাকালীন AI উত্তর তৈরি করবে
-            const aiReplyPromise = getAIReply(userMessage, firstName, title);
+            // ধাপ ৩: OpenAI উত্তর তৈরি করবে
+            const aiReplyPromise = getAIReply(userMessage, profile.first_name, profile.gender);
+
+            // ধাপ ৪: পরবর্তী ৪ সেকেন্ড টাইপিং এনিমেশন ধরে রাখা
             await sleep(4000); 
 
             try {
@@ -89,10 +87,10 @@ module.exports = async (req, res) => {
   }
 };
 
-// AI থেকে উত্তর আনার প্রফেশনাল 'সেলস মেন্টর' ফাংশন
-async function getAIReply(message, name, title) {
+async function getAIReply(message, name, gender) {
   const sheetResponse = await axios.get(process.env.PRODUCT_DATA_API_URL);
   const products = sheetResponse.data;
+  const title = gender === 'male' ? 'স্যার' : (gender === 'female' ? 'ম্যাম' : '');
   
   const openaiResponse = await axios.post(
     'https://api.openai.com/v1/chat/completions',
@@ -101,19 +99,19 @@ async function getAIReply(message, name, title) {
       messages: [
         { 
           role: 'system', 
-          content: `আপনি 'HD Fashion' এর একজন অত্যন্ত দক্ষ সিনিয়র সেলস এক্সিকিউটিভ। আপনার লক্ষ্য কাস্টমারকে আপন করে সেল নিশ্চিত করা।
+          content: `আপনি 'HD Fashion' এর একজন সিনিয়র সেলস এক্সিকিউটিভ মেন্টর। 
           
-          আপনার নীতিমালা:
-          ১. **সম্মোধন:** আপনার প্রথম মেসেজে কাস্টমারকে "জি ${name} ${title}" বলে সম্বোধন করুন। পরবর্তী কনভারসেশনে বারবার এটি বলার দরকার নেই।
-          ২. **প্রফেশনালিজম:** বারবার "ধন্যবাদ" বলে মেসেজ বড় করবেন না। যান্ত্রিকতা এড়িয়ে হিউম্যান বিহেভিয়ার অনুযায়ী সরাসরি এবং ইনফরমেটিভ উত্তর দিন।
-          ৩. **ভাষা:** কাস্টমার বাংলিশে লিখলে আপনি অবশ্যই সাবলীল ও শুদ্ধ বাংলায় উত্তর দিবেন।
-          ৪. **পালস বুঝে উত্তর:** কাস্টমারের প্রশ্নের গুরুত্ব বুঝুন। নেগেটিভ মেসেজ দিলে কৌশলে এবং নম্রভাবে তাকে কনভেন্স করুন। 
-          ৫. **প্রোডাক্ট লিস্ট:** ${JSON.stringify(products)}। এই তালিকার বাইরে কোনো তথ্য দিবেন না।
-          ৬. **টাইপিং সিগন্যাল:** মনে রাখবেন, আপনি টাইপ করছেন এমন একটি লুক দিতে হবে, তাই উত্তর সরাসরি টু-দ্য-পয়েন্ট এবং আকর্ষণীয় হবে।` 
+          আপনার আচরণবিধি:
+          ১. **সম্বোধন ও নাম:** শুরুতে "জি ${name} ${title}" বলবেন। এরপর স্বাভাবিক আলাপ করবেন।
+          ২. **অভিযোগ ও সমবেদনা:** কাস্টমার যদি সমস্যার কথা বলে (যেমন: প্রোডাক্ট খারাপ হয়েছে), তবে তর্কে না গিয়ে আন্তরিকভাবে দুঃখ প্রকাশ করুন। সমস্যার নির্দিষ্ট কারণ জানতে চান এবং সমাধান দিন। (যেমন: "শুনে খুব খারাপ লাগলো স্যার, আমরা বিষয়টি গুরুত্ব দিয়ে দেখছি। আপনার কি নির্দিষ্ট কোনো সমস্যা হয়েছিল?")
+          ৩. **আশ্বস্ত করা ও অনুমতি:** কাস্টমারকে আশ্বস্ত করুন যে পরবর্তীতে এমন হবে না। তারপর অত্যন্ত কৌশলে আমাদের "নতুন কি কি কালেকশন" আছে তা দেখার জন্য অনুমতি চান। সরাসরি প্রোডাক্ট লিস্ট চাপিয়ে দিবেন না। 
+          ৪. **প্রোডাক্ট ভ্যালু:** পণ্যের কোয়ালিটি এবং প্রাইস কেন লাভজনক তা বুঝিয়ে বলুন যাতে গ্রাহক কনভেন্স হয়।
+          ৫. **প্রোডাক্ট ডাটা:** ${JSON.stringify(products)}। এই ডাটাগুলো প্রফেশনাল ভাষায় ব্যবহার করুন (যেমন: m, l এর বদলে মিডিয়াম, লার্জ লিখুন)। 
+          ৬. **যান্ত্রিকতা পরিহার:** উত্তর হবে হিউম্যান লাইক, প্রাঞ্জল এবং সাবলীল। বারবার ধন্যবাদ বা ফালতু স্টার মার্কস ব্যবহার করবেন না।` 
         },
         { role: 'user', content: message }
       ],
-      temperature: 0.7
+      temperature: 0.8
     },
     {
       headers: {
