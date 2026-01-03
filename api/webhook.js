@@ -2,17 +2,17 @@ const axios = require('axios');
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// প্রোফাইল থেকে নাম ও লিঙ্গ সংগ্রহ
-async function getUserProfile(sender_id) {
+// প্রোফাইল থেকে শুধু লিঙ্গ (Gender) সংগ্রহ করার ফাংশন
+async function getUserGender(sender_id) {
   try {
-    const res = await axios.get(`https://graph.facebook.com/${sender_id}?fields=first_name,gender&access_token=${process.env.PAGE_ACCESS_TOKEN}`);
-    return res.data;
+    const res = await axios.get(`https://graph.facebook.com/${sender_id}?fields=gender&access_token=${process.env.PAGE_ACCESS_TOKEN}`);
+    return res.data.gender;
   } catch (error) {
-    return { first_name: 'সম্মানিত কাস্টমার', gender: 'unknown' };
+    return 'unknown';
   }
 }
 
-// সিন এবং টাইপিং অ্যাকশন
+// সিন এবং টাইপিং অ্যাকশন পাঠানোর ফাংশন
 async function sendAction(sender_id, action) {
   try {
     await axios.post(`https://graph.facebook.com/v12.0/me/messages?access_token=${process.env.PAGE_ACCESS_TOKEN}`,
@@ -38,17 +38,18 @@ module.exports = async (req, res) => {
 
           if (webhook_event.message && webhook_event.message.text) {
             const userMsg = webhook_event.message.text;
-            const profile = await getUserProfile(sender_id);
 
-            // ৩ সেকেন্ড পর সিন এবং টাইপিং শুরু
+            // ৩ সেকেন্ড পর সিন এবং টাইপিং শুরু (টাইপিং ডট ডট এনিমেশন নিশ্চিত করতে)
             await sleep(3000); 
             await sendAction(sender_id, 'mark_seen');
             await sleep(500); 
             await sendAction(sender_id, 'typing_on');
 
-            const aiReplyPromise = getAIReply(userMsg, profile.first_name, profile.gender);
+            // জেন্ডার অনুযায়ী সম্বোধন ঠিক করা
+            const gender = await getUserGender(sender_id);
+            const aiReplyPromise = getAIReply(userMsg, gender);
             
-            // ৫ সেকেন্ড টাইপিং এনিমেশন ধরে রাখা
+            // ৫ সেকেন্ড টাইপিং এনিমেশন শো করাবে
             await sleep(5000); 
 
             try {
@@ -65,10 +66,10 @@ module.exports = async (req, res) => {
   }
 };
 
-async function getAIReply(message, name, gender) {
+async function getAIReply(message, gender) {
   const sheet = await axios.get(process.env.PRODUCT_DATA_API_URL);
   const products = sheet.data;
-  const title = gender === 'male' ? 'স্যার' : (gender === 'female' ? 'ম্যাম' : 'কাস্টমার');
+  const title = gender === 'male' ? 'স্যার' : (gender === 'female' ? 'ম্যাম' : 'স্যার/ম্যাম');
 
   const response = await axios.post(
     'https://api.openai.com/v1/chat/completions',
@@ -77,20 +78,20 @@ async function getAIReply(message, name, gender) {
       messages: [
         { 
           role: 'system', 
-          content: `আপনি 'HD Fashion' এর একজন অত্যন্ত দক্ষ সিনিয়র সেলস এক্সিকিউটিভ। আপনার একমাত্র লক্ষ্য কাস্টমারকে কনভেন্স করে সেল নিশ্চিত করা।
+          content: `আপনি 'HD Fashion' এর একজন অত্যন্ত দক্ষ এবং মার্জিত সিনিয়র সেলস ম্যানেজার। আপনার লক্ষ্য হলো গ্রাহককে কনভেন্স করে সেল নিশ্চিত করা।
 
-          আচরণবিধি:
-          ১. **সম্বোধন:** প্রথম মেসেজে "জি ${name} ${title}" বলবেন। পরবর্তী মেসেজগুলোতে শুধু "${title}" বলবেন, বারবার নাম নেওয়ার দরকার নেই।
-          ২. **সেলস ক্লোজিং:** কাস্টমার যখন প্রোডাক্ট নিয়ে পজিটিভ কিছু বলবে, সাথে সাথে মার্জিতভাবে জিজ্ঞেস করুন— "${title}, আপনি কি প্রোডাক্টটি নিতে চাচ্ছেন?"। কাস্টমার রাজি হলে তার কাছ থেকে নাম, পূর্ণ ঠিকানা এবং মোবাইল নম্বর চেয়ে নিন।
-          ৩. **ডেলিভারি চার্জ:** ঢাকার মধ্যে ৮০ টাকা এবং ঢাকার বাইরে ১৫০ টাকা। এটি কাস্টমারকে আলোচনার মাঝে বুঝিয়ে বলুন।
-          ৪. **নেগোসিয়েশন:** কাস্টমার দাম কমাতে চাইলে প্রথমে কোয়ালিটি ও ফিনিশিংয়ের ভ্যালু বোঝান। যদি সে নিতে না চায়, তবে স্পেশাল অফার হিসেবে সর্বোচ্চ ৪০০ টাকা ছাড় দেওয়ার ক্ষমতা আপনার আছে।
-          ৫. **অভিযোগ:** অভিযোগ করলে আগে আন্তরিকভাবে দুঃখ প্রকাশ করে সমাধান দিন। 
-          ৬. **প্রফেশনাল টোন:** আপনার ভাষা হবে মানুষের মতো, প্রাঞ্জল ও সাবলীল। যান্ত্রিক ড্যাশ, স্টার (*) বা অপ্রয়োজনীয় ধন্যবাদ এড়িয়ে চলুন।
-          ৭. **প্রোডাক্ট লিস্ট:** ${JSON.stringify(products)}। সাইজগুলোকে (m, l, xl) সুন্দর করে 'মিডিয়াম, লার্জ, এক্সট্রা লার্জ' হিসেবে লিখবেন।` 
+          আপনার নির্দেশিকা:
+          ১. **সম্বোধন:** নাম ধরে ডাকার প্রয়োজন নেই। শুধু ছেলে হলে "${title}" এবং মেয়ে হলে "${title}" বলে সম্বোধন করবেন। 
+          ২. **সেলস স্ট্র্যাটেজি:** কাস্টমারের সাথে কথা বলার সময় কৌশলে জিজ্ঞেস করুন— "${title}, আপনি কোন প্রোডাক্টটি নিতে চাচ্ছেন? দয়া করে আমাকে ছবি অথবা প্রোডাক্ট কোডটি দিন।"
+          ৩. **প্রাইস অবজেকশন:** কাস্টমার যদি বলে "দাম বেশি", তবে কোনো ডিসকাউন্ট দিবেন না। পরিবর্তে আমাদের কাপড়ের গুণগত মান, প্রিমিয়াম ফেব্রিক এবং উন্নত ফিনিশিংয়ের কথা উল্লেখ করে কেন দামটি যুক্তিসঙ্গত তা বুঝিয়ে বলুন।
+          ৪. **ডেলিভারি চার্জ:** ঢাকার মধ্যে ৮০ টাকা এবং ঢাকার বাইরে ১৫০ টাকা। 
+          ৫. **নেগেটিভ মেসেজ হ্যান্ডলিং:** কোনো নেতিবাচক কথা বললে আন্তরিকভাবে দুঃখ প্রকাশ করে পজিটিভ এবং ইনফরমেটিভ উত্তর দিন। 
+          ৬. **ভাষা ও টোন:** অত্যন্ত নম্র, ভদ্র এবং সাবলীল শুদ্ধ বাংলা ব্যবহার করুন। উত্তর হবে সংক্ষিপ্ত কিন্তু অত্যন্ত তথ্যবহুল এবং প্রফেশনাল। কোনো যান্ত্রিক চিহ্ন বা ড্যাশ ব্যবহার করবেন না।
+          ৭. **প্রোডাক্ট ডাটা:** ${JSON.stringify(products)}।` 
         },
         { role: 'user', content: message }
       ],
-      temperature: 0.75
+      temperature: 0.7
     },
     { headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' } }
   );
