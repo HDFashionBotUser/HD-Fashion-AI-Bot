@@ -69,7 +69,7 @@ module.exports = async (req, res) => {
                 // এআই থেকে উত্তর আনা
                 const aiReply = await getAIReply(userMsg, imageUrl, gender);
                 
-                // টাইপিং ইফেক্ট বজায় রাখতে মোট ৭ সেকেন্ড পূর্ণ করা
+                // টাইপিং ইফেক্ট বজায় রাখতে মোট ৭ সেকেন্ড পূর্ণ করা (৩.৫ + ৩.৫ = ৭)
                 await sleep(3500); 
 
                 await axios.post(`https://graph.facebook.com/v12.0/me/messages?access_token=${process.env.PAGE_ACCESS_TOKEN}`,
@@ -89,7 +89,6 @@ module.exports = async (req, res) => {
 
 async function getAIReply(message, imageUrl, gender) {
   try {
-    // গুগল শিট থেকে ডাটা আনা
     const sheet = await axios.get(process.env.PRODUCT_DATA_API_URL);
     const products = sheet.data;
     const title = gender === 'male' ? 'স্যার' : (gender === 'female' ? 'ম্যাম' : 'স্যার/ম্যাম');
@@ -104,7 +103,7 @@ async function getAIReply(message, imageUrl, gender) {
       if (base64Image) {
         content.push({ 
           type: "text", 
-          text: "এই ছবিটি ভালো করে দেখুন। ছবির ওপর বা নিচে থাকা প্রোডাক্ট কোডটি (যেমন: P001, P002) শনাক্ত করুন এবং সেই অনুযায়ী ডাটাবেস থেকে তথ্য দিন।" 
+          text: "Identify the product code from this image and provide data from the database. If no code is found, follow the fallback instruction." 
         });
         content.push({ 
           type: "image_url", 
@@ -113,8 +112,6 @@ async function getAIReply(message, imageUrl, gender) {
             detail: "high" 
           } 
         });
-      } else {
-        content.push({ type: "text", text: "আমি ছবিটি দেখতে পাচ্ছি না, তবে কাস্টমার একটি ছবি পাঠিয়েছেন।" });
       }
     }
 
@@ -127,27 +124,37 @@ async function getAIReply(message, imageUrl, gender) {
             role: 'system', 
             content: `আপনি 'HD Fashion' এর একজন অত্যন্ত মার্জিত ও প্রফেশনাল সিনিয়র সেলস এক্সিকিউটিভ।
             
-            আপনার নির্দেশিকা:
-            ১. ভাষা: একজন আদর্শ শিক্ষকের মতো অত্যন্ত নম্র, ভদ্র এবং পোলাইট ভাষায় কথা বলবেন। 
-            ২. সম্বোধন: কাস্টমারকে সবসময় '${title}' বলে সম্বোধন করবেন। 
-            ৩. উত্তর: উত্তর হবে অত্যন্ত সংক্ষিপ্ত কিন্তু ইনফরমেটিভ। অপ্রাসঙ্গিক কথা বলবেন না।
-            ৪. ইমেজ রিডিং: ছবিতে থাকা কোডটি (যেমন: P002) শনাক্ত করে নিচের ডাটাবেস থেকে সঠিক মূল্য ও বিবরণ দিন।
-            ৫. ডেলিভারি চার্জ: ঢাকা ৮০ টাকা, ঢাকার বাইরে ১৫০ টাকা।
-            ৬. হিউম্যান টাচ: একজন দরদী মানুষের মতো আচরণ করবেন যেন কাস্টমার সন্তুষ্ট হন।
+            আপনার নির্দেশিকা (কঠোরভাবে পালনীয়):
+            ১. সম্বোধন: কাস্টমারকে সবসময় 'জি ${title},' বলে উত্তর শুরু করবেন।
+            ২. অপ্রয়োজনীয় কথা বর্জন: "ছবিতে থাকা কোডটি হলো..." বা "এটি সম্পর্কে তথ্য হলো..." এই ধরণের বাক্য একদম বলবেন না। সরাসরি 'জি ${title},' এর পর প্রোডাক্টের ডিটেইলস দিয়ে দিবেন।
+            ৩. ফরম্যাট: 
+               জি ${title},
+               [প্রোডাক্টের নাম/বিবরণ]
+               মূল্য: [মূল্য] টাকা
+               আকার: [আকার]
+               [অন্যান্য তথ্য থাকলে]
+               
+               প্রোডাক্টটি অর্ডার করতে আপনার নাম, ঠিকানা, মোবাইল নাম্বার দিয়ে সহযোগিতা করুন। ধন্যবাদ।
+            
+            ৪. কোড শনাক্ত করতে না পারলে (Fallback): যদি ছবির কোডটি ডাটাবেসে না পান বা রিড করতে না পারেন, তবে ঠিক এই মেসেজটি দিবেন:
+               "সরি ${title}, আমাদের ভিডিওতে অথবা প্রোডাক্টের ছবিতে প্রত্যেকটি প্রোডাক্ট এর জন্য একটি করে কোড দেওয়া রয়েছে। দয়া করে কোডটি টেক্সট করে সহযোগিতা করুন আমি আপনাকে বিস্তারিত জানাচ্ছি। ধন্যবাদ।"
+            
+            ৫. ভাষা: অত্যন্ত নম্র ও হিউম্যান-লাইক হবে।
+            ৬. ডেলিভারি চার্জ: ঢাকা ৮০, ঢাকার বাইরে ১৫০।
             
             আপনার প্রোডাক্ট ডাটাবেস: ${JSON.stringify(products)}` 
           },
           { role: 'user', content: content }
         ],
-        temperature: 0.5,
-        max_tokens: 400
+        temperature: 0.3, // উত্তর যেন একদম টু-দ্য-পয়েন্ট হয়
+        max_tokens: 500
       },
       { headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' } }
     );
 
     return response.data.choices[0].message.content;
   } catch (error) {
-    console.error('OpenAI/Sheet Error:', error.response ? JSON.stringify(error.response.data) : error.message);
-    return `জি ${title}, আমি আন্তরিকভাবে দুঃখিত। যান্ত্রিক সমস্যার কারণে আমি আপনার মেসেজ বা ছবিটি ঠিকমতো বুঝতে পারছি না। আপনি কি দয়া করে প্রোডাক্ট কোডটি লিখে দেবেন? আমি এখনই আপনাকে বিস্তারিত জানিয়ে দিচ্ছি।`;
+    const title = gender === 'male' ? 'স্যার' : (gender === 'female' ? 'ম্যাম' : 'স্যার/ম্যাম');
+    return `সরি ${title}, আমাদের ভিডিওতে অথবা প্রোডাক্টের ছবিতে প্রত্যেকটি প্রোডাক্ট এর জন্য একটি করে কোড দেওয়া রয়েছে। দয়া করে কোডটি টেক্সট করে সহযোগিতা করুন আমি আপনাকে বিস্তারিত জানাচ্ছি। ধন্যবাদ।`;
   }
 }
