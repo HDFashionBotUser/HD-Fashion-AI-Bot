@@ -2,6 +2,17 @@ const axios = require('axios');
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ছবিকে সরাসরি ডাটাতে (Base64) রূপান্তর করার ফাংশন
+async function getImageBase64(url) {
+  try {
+    const response = await axios.get(url, { responseType: 'arraybuffer' });
+    return Buffer.from(response.data, 'binary').toString('base64');
+  } catch (error) {
+    console.error('Image Conversion Error:', error.message);
+    return null;
+  }
+}
+
 // ফেসবুক থেকে ইউজারের জেন্ডার জানার ফাংশন
 async function getUserGender(sender_id) {
   try {
@@ -12,7 +23,7 @@ async function getUserGender(sender_id) {
   }
 }
 
-// টাইপিং এবং সিন অ্যাকশন
+// ফেসবুক মেসেঞ্জারে অ্যাকশন (Seen/Typing) পাঠানোর ফাংশন
 async function sendAction(sender_id, action) {
   try {
     await axios.post(`https://graph.facebook.com/v12.0/me/messages?access_token=${process.env.PAGE_ACCESS_TOKEN}`,
@@ -55,16 +66,17 @@ module.exports = async (req, res) => {
               const gender = await getUserGender(sender_id);
               
               try {
+                // এআই থেকে উত্তর আনা
                 const aiReply = await getAIReply(userMsg, imageUrl, gender);
                 
-                // টাইপিং শেষ হওয়ার জন্য অপেক্ষা (মোট ৭ সেকেন্ড পূর্ণ করা)
+                // টাইপিং ইফেক্ট বজায় রাখতে মোট ৭ সেকেন্ড পূর্ণ করা
                 await sleep(3500); 
 
                 await axios.post(`https://graph.facebook.com/v12.0/me/messages?access_token=${process.env.PAGE_ACCESS_TOKEN}`,
                   { recipient: { id: sender_id }, message: { text: aiReply } }
                 );
               } catch (e) { 
-                console.error('Final Error:', e.message); 
+                console.error('Webhook Post Error:', e.message); 
               }
             }
           }
@@ -77,22 +89,33 @@ module.exports = async (req, res) => {
 
 async function getAIReply(message, imageUrl, gender) {
   try {
+    // গুগল শিট থেকে ডাটা আনা
     const sheet = await axios.get(process.env.PRODUCT_DATA_API_URL);
     const products = sheet.data;
     const title = gender === 'male' ? 'স্যার' : (gender === 'female' ? 'ম্যাম' : 'স্যার/ম্যাম');
 
     const content = [];
-    if (message) content.push({ type: "text", text: message });
+    if (message) {
+      content.push({ type: "text", text: message });
+    }
 
     if (imageUrl) {
-      content.push({ 
-        type: "text", 
-        text: "এই ছবিটি বিশ্লেষণ করো। ছবিতে থাকা প্রোডাক্ট কোডটি (যেমন: P001, P002) শনাক্ত করো এবং ডাটাবেস থেকে তথ্য দাও।" 
-      });
-      content.push({ 
-        type: "image_url", 
-        image_url: { url: imageUrl, detail: "high" } 
-      });
+      const base64Image = await getImageBase64(imageUrl);
+      if (base64Image) {
+        content.push({ 
+          type: "text", 
+          text: "এই ছবিটি ভালো করে দেখুন। ছবির ওপর বা নিচে থাকা প্রোডাক্ট কোডটি (যেমন: P001, P002) শনাক্ত করুন এবং সেই অনুযায়ী ডাটাবেস থেকে তথ্য দিন।" 
+        });
+        content.push({ 
+          type: "image_url", 
+          image_url: { 
+            url: `data:image/jpeg;base64,${base64Image}`,
+            detail: "high" 
+          } 
+        });
+      } else {
+        content.push({ type: "text", text: "আমি ছবিটি দেখতে পাচ্ছি না, তবে কাস্টমার একটি ছবি পাঠিয়েছেন।" });
+      }
     }
 
     const response = await axios.post(
@@ -104,27 +127,27 @@ async function getAIReply(message, imageUrl, gender) {
             role: 'system', 
             content: `আপনি 'HD Fashion' এর একজন অত্যন্ত মার্জিত ও প্রফেশনাল সিনিয়র সেলস এক্সিকিউটিভ।
             
-            আপনার ব্যবহারের নিয়মাবলী:
-            ১. ভাষা: একজন আদর্শ শিক্ষকের মতো নম্র, ভদ্র এবং পোলাইট ভাষায় কথা বলবেন। 
+            আপনার নির্দেশিকা:
+            ১. ভাষা: একজন আদর্শ শিক্ষকের মতো অত্যন্ত নম্র, ভদ্র এবং পোলাইট ভাষায় কথা বলবেন। 
             ২. সম্বোধন: কাস্টমারকে সবসময় '${title}' বলে সম্বোধন করবেন। 
-            ৩. উত্তর দেওয়ার ধরণ: উত্তর হবে অত্যন্ত সংক্ষিপ্ত কিন্তু ইনফরমেটিভ (টু দ্য পয়েন্ট)। কোনো অপ্রাসঙ্গিক কথা বলবেন না।
-            ৪. ইমেজ প্রসেসিং: কাস্টমার ছবি পাঠালে ছবির কোডটি নিচের ডাটাবেসে খুঁজুন। 
-            ৫. তথ্য প্রদান: প্রোডাক্টের নাম, সঠিক মূল্য এবং সংক্ষিপ্ত বিবরণ দিন। 
-            ৬. ডেলিভারি চার্জ: ঢাকা ৮০ টাকা, ঢাকার বাইরে ১৫০ টাকা।
-            ৭. হিউম্যান বিহেভিয়ার: রোবটের মতো নয়, বরং একজন দরদী মানুষের মতো উত্তর দিবেন যেন কাস্টমার সন্তুষ্ট হন।
+            ৩. উত্তর: উত্তর হবে অত্যন্ত সংক্ষিপ্ত কিন্তু ইনফরমেটিভ। অপ্রাসঙ্গিক কথা বলবেন না।
+            ৪. ইমেজ রিডিং: ছবিতে থাকা কোডটি (যেমন: P002) শনাক্ত করে নিচের ডাটাবেস থেকে সঠিক মূল্য ও বিবরণ দিন।
+            ৫. ডেলিভারি চার্জ: ঢাকা ৮০ টাকা, ঢাকার বাইরে ১৫০ টাকা।
+            ৬. হিউম্যান টাচ: একজন দরদী মানুষের মতো আচরণ করবেন যেন কাস্টমার সন্তুষ্ট হন।
             
-            আপনার বর্তমান প্রোডাক্ট ডাটাবেস: ${JSON.stringify(products)}` 
+            আপনার প্রোডাক্ট ডাটাবেস: ${JSON.stringify(products)}` 
           },
           { role: 'user', content: content }
         ],
-        temperature: 0.5, // উত্তর আরও সঠিক ও স্থির রাখার জন্য
-        max_tokens: 300
+        temperature: 0.5,
+        max_tokens: 400
       },
       { headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' } }
     );
 
     return response.data.choices[0].message.content;
   } catch (error) {
-    return `জি ${title}, আমি আন্তরিকভাবে দুঃখিত। যান্ত্রিক সমস্যার কারণে ছবিটি দেখতে পাচ্ছি না। আপনি কি দয়া করে প্রোডাক্ট কোডটি লিখে দেবেন? আমি এখনই আপনাকে বিস্তারিত জানিয়ে দিচ্ছি।`;
+    console.error('OpenAI/Sheet Error:', error.response ? JSON.stringify(error.response.data) : error.message);
+    return `জি ${title}, আমি আন্তরিকভাবে দুঃখিত। যান্ত্রিক সমস্যার কারণে আমি আপনার মেসেজ বা ছবিটি ঠিকমতো বুঝতে পারছি না। আপনি কি দয়া করে প্রোডাক্ট কোডটি লিখে দেবেন? আমি এখনই আপনাকে বিস্তারিত জানিয়ে দিচ্ছি।`;
   }
 }
